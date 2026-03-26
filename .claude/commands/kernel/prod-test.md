@@ -6,7 +6,7 @@ Run a full production test against a deliverable repo.
 
 ```
 /kernel/prod-test [source_repo_path]
-/kernel/prod-test C:/Users/solos/my_ai_projects/platform-ssh-verify
+/kernel/prod-test /path/to/your-repo
 ```
 
 ## Instructions

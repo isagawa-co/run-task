@@ -279,14 +279,6 @@ Run-Task is one component of the Isagawa ecosystem:
 
 ---
 
-## Services
-
-We build AI execution management systems. The kernel enforces how AI works — not just what it generates.
-
-**[alain@isagawa.co](mailto:alain@isagawa.co)** · **[DM on LinkedIn](https://www.linkedin.com/in/alain-ignacio-54b9823)**
-
----
-
 ## License
 
 [MIT](LICENSE) — Copyright (c) 2025 Isagawa

@@ -11,7 +11,7 @@ Takes a deliverable repo and runs a full production test against it. Assembles a
 
 ```
 /kernel/prod-test [source_repo_path]
-/kernel/prod-test C:/Users/solos/my_ai_projects/platform-ssh-verify
+/kernel/prod-test /path/to/your-repo
 ```
 
 **Arguments:**

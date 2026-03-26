@@ -59,7 +59,7 @@ When a factory task or any task says HUMAN REQUIRED:
 
 | Repo | Purpose | Location |
 |------|---------|----------|
-| domain-spec-factory | Produces domain specs (12-step pipeline) | `C:/Users/solos/my_ai_projects/domain-spec-factory` |
-| platform-docker | Docker image testing template | `C:/Users/solos/my_ai_projects/platform-docker` |
-| py-selenium-framework-mcp | Selenium QA template | `C:/Users/solos/my_ai_projects/py-selenium-framework-mcp` |
-| isagawa-kernel | Canonical kernel repo | `C:/Users/solos/my_ai_projects/isagawa-kernel` |
+| domain-spec-factory | Produces domain specs (12-step pipeline) | local clone |
+| platform-docker | Docker image testing template | local clone |
+| py-selenium-framework-mcp | Selenium QA template | local clone |
+| isagawa-kernel | Canonical kernel repo | local clone |

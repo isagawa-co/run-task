@@ -23,8 +23,8 @@ Build the golden copy with deliverable code + kernel + domain spec + scripts.
    ```
 
 4. **Copy kernel infrastructure:**
-   - Commands: `.claude/commands/kernel/*.md` (from sr-dev-workspace or kernel source)
-   - Hooks: `.claude/hooks/*.py` (from sr-dev-workspace or kernel source)
+   - Commands: `.claude/commands/kernel/*.md` (from orchestrator repo or kernel source)
+   - Hooks: `.claude/hooks/*.py` (from orchestrator repo or kernel source)
    - Create empty dirs: `.claude/state/`, `.claude/protocols/`, `.claude/lessons/`
 
 5. **Copy shell scripts:**
@@ -43,9 +43,9 @@ Build the golden copy with deliverable code + kernel + domain spec + scripts.
 
 | Component | Primary source | Fallback |
 |-----------|---------------|----------|
-| Kernel commands | sr-dev-workspace `.claude/commands/kernel/` | isagawa-kernel repo |
-| Hooks | sr-dev-workspace `.claude/hooks/` | isagawa-kernel repo |
-| Shell scripts | `run-task-resume-master/` | sr-dev-workspace root |
+| Kernel commands | orchestrator repo `.claude/commands/kernel/` | isagawa-kernel repo |
+| Hooks | orchestrator repo `.claude/hooks/` | isagawa-kernel repo |
+| Shell scripts | orchestrator repo root | run-task repo |
 | Domain spec | source repo `.claude/skills/` | — |
 | Code | source repo | — |
 
