@@ -1,4 +1,5 @@
 #!/bin/bash
+set -uo pipefail
 #
 # run-task-batch.sh — Batch task execution for Isagawa Kernel
 #
@@ -15,43 +16,31 @@
 #                   Example: "kernel-test" → tasks/kernel-test/
 #   timeout_seconds Max time for the batch run (default: 600)
 
+# --- Configuration ---
 REPO="${1:-.}"
 TASK_SUBFOLDER="${2:-}"
 TIMEOUT_SECONDS="${3:-600}"
 
-# Resolve to absolute path
-if [ ! -d "$REPO" ]; then
-  echo "ERROR: Directory not found: $REPO"
-  exit 1
-fi
+# --- Resolve script directory and source shared lib ---
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
+
+# --- Validate ---
+validate_deps
 REPO=$(cd "$REPO" && pwd)
+validate_repo "$REPO"
+resolve_paths "$REPO"
 
-# Verify this is a kernel repo
-if [ ! -f "$REPO/CLAUDE.md" ]; then
-  echo "ERROR: Not a kernel repo (no CLAUDE.md): $REPO"
-  exit 1
-fi
-
-# Convert paths for Windows compatibility (Git Bash /c/ → C:/)
-if command -v cygpath &>/dev/null; then
-  STATE_FILE=$(cygpath -m "$REPO/.claude/state/session_state.json")
-  LOG_DIR=$(cygpath -m "$REPO/.claude/state")
-else
-  STATE_FILE="$REPO/.claude/state/session_state.json"
-  LOG_DIR="$REPO/.claude/state"
-fi
-
-mkdir -p "$LOG_DIR"
 LOGFILE="${LOG_DIR}/batch_run.log"
 
-# Resolve task folder path
+# --- Resolve task folder ---
 if [ -n "$TASK_SUBFOLDER" ]; then
   TASK_DIR="tasks/${TASK_SUBFOLDER}/"
 else
   TASK_DIR="tasks/"
 fi
 
-# Batch prompt — agent cycles through ALL tasks in one session
+# --- Prompts ---
 PROMPT="You have full permissions. Do not ask for permission — just act.
 
 Read CLAUDE.md and follow the kernel workflow:
@@ -74,6 +63,22 @@ Continue where you left off:
 
 After all tasks are done, output the exact text ALL_TASKS_COMPLETE on its own line."
 
+# --- Trap for clean exit on signals ---
+cleanup() {
+  local end_time
+  end_time=$(date +%s)
+  local elapsed=$((end_time - START_TIME))
+  echo ""
+  echo "============================================"
+  echo "  INTERRUPTED"
+  echo "  Time: ${elapsed}s"
+  echo "  Log: $LOGFILE"
+  echo "============================================"
+  exit 130
+}
+trap cleanup SIGINT SIGTERM
+
+# --- Banner ---
 echo "============================================"
 echo "  Isagawa Kernel - Batch Task Runner"
 echo "============================================"
@@ -82,85 +87,13 @@ echo "Task folder: $TASK_DIR"
 echo "Timeout: ${TIMEOUT_SECONDS}s"
 echo ""
 
-# --- Helper: print current state ---
-print_state() {
-  python -c "
-import json, pathlib
-sf = pathlib.Path('$STATE_FILE')
-if not sf.exists():
-    print('  (no state file)')
-else:
-    s = json.loads(sf.read_text())
-    d = s.get('domain','')
-    if d:
-        wf = sf.parent / (d + '_workflow.json')
-        if wf.exists():
-            w = json.loads(wf.read_text())
-            print('  completed:', len(w.get('completed_tasks', [])))
-            print('  skipped:', len(w.get('skipped_tasks', [])))
-            print('  current:', w.get('current_task'))
-" 2>/dev/null || echo "  (state read failed)"
-}
-
-# --- Helper: extract session_id from JSON output ---
-extract_session_id() {
-  local json_output="$1"
-  echo "$json_output" | python -c "
-import sys, json
-try:
-    data = json.loads(sys.stdin.read())
-    print(data.get('session_id', ''))
-except:
-    print('')
-" 2>/dev/null
-}
-
-# --- Helper: extract result text from JSON output ---
-extract_result() {
-  local json_output="$1"
-  echo "$json_output" | python -c "
-import sys, json
-try:
-    data = json.loads(sys.stdin.read())
-    print(data.get('result', ''))
-except:
-    print('')
-" 2>/dev/null
-}
-
-# --- Helper: check for completion signal ---
-check_completion() {
-  local text="$1"
-  if echo "$text" | grep -q "ALL_TASKS_COMPLETE"; then
-    echo "all_done"
-  elif echo "$text" | grep -qi "no incomplete tasks"; then
-    echo "all_done"
-  else
-    echo "no_signal"
-  fi
-}
-
-# --- Helper: pre-initialize session state ---
-# Avoids deadlock where agent can't write session_started=true
-# because Claude Code's sensitive file guard blocks .claude/state/ writes
-pre_init_state() {
-  python -c "
-import json, pathlib
-f = pathlib.Path('$STATE_FILE')
-s = json.loads(f.read_text()) if f.exists() else {}
-s['session_started'] = True
-f.parent.mkdir(parents=True, exist_ok=True)
-f.write_text(json.dumps(s, indent=2))
-" 2>/dev/null
-}
-
 # Show state before
 echo "[STATE before]"
 print_state
 echo ""
 
 # Pre-initialize to avoid permission deadlock
-pre_init_state
+pre_init_state "session_started=True"
 
 # Record start time
 START_TIME=$(date +%s)
@@ -168,21 +101,21 @@ START_TIME=$(date +%s)
 # --- Run batch ---
 echo "[RUNNING] claude -p (batch, timeout ${TIMEOUT_SECONDS}s) ..."
 cd "$REPO"
-RAW_OUTPUT=$(timeout "$TIMEOUT_SECONDS" claude -p --dangerously-skip-permissions --output-format json "$PROMPT" 2>&1)
-EXIT_CODE=$?
+RAW_OUTPUT=$(timeout "$TIMEOUT_SECONDS" claude -p --dangerously-skip-permissions --output-format json "$PROMPT" 2>&1) || true
+EXIT_CODE=${PIPESTATUS[0]:-$?}
 
 # Save log
-echo "$RAW_OUTPUT" > "$LOGFILE"
+write_log "$RAW_OUTPUT" "$LOGFILE"
 
 # Extract fields
 SESSION_ID=$(extract_session_id "$RAW_OUTPUT")
 RESULT=$(extract_result "$RAW_OUTPUT")
 STATUS=$(check_completion "$RESULT")
 
-echo "$RESULT"
+printf '%s\n' "$RESULT"
 
 # --- Handle timeout ---
-if [ $EXIT_CODE -eq 124 ]; then
+if [ "$EXIT_CODE" -eq 124 ] 2>/dev/null; then
   echo ""
   echo "-> TIMEOUT after ${TIMEOUT_SECONDS}s"
   STATUS="no_signal"
@@ -223,15 +156,14 @@ fi
 
 RESUME_LOGFILE="${LOG_DIR}/batch_run_resume.log"
 echo "[RUNNING] claude -p --resume $SESSION_ID ..."
-RAW_OUTPUT=$(timeout "$TIMEOUT_SECONDS" claude -p --dangerously-skip-permissions --output-format json --resume "$SESSION_ID" "$RESUME_PROMPT" 2>&1)
-EXIT_CODE=$?
+RAW_OUTPUT=$(timeout "$TIMEOUT_SECONDS" claude -p --dangerously-skip-permissions --output-format json --resume "$SESSION_ID" "$RESUME_PROMPT" 2>&1) || true
 
-echo "$RAW_OUTPUT" > "$RESUME_LOGFILE"
+write_log "$RAW_OUTPUT" "$RESUME_LOGFILE"
 
 RESULT=$(extract_result "$RAW_OUTPUT")
 STATUS=$(check_completion "$RESULT")
 
-echo "$RESULT"
+printf '%s\n' "$RESULT"
 
 END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
