@@ -6,7 +6,7 @@
 
 Run-Task spawns isolated Claude Code agents (`claude -p`) to execute task files one at a time. Each agent reads the task, does the work, reports completion, and exits. The script handles retries, resume on crash, and progress tracking.
 
-Built for the [Isagawa Kernel](https://github.com/isagawa-co/isagawa-kernel) but works with any `claude -p` compatible setup.
+Ships with the full [Isagawa Kernel](https://github.com/isagawa-co/isagawa-kernel) — self-building, self-improving AI execution management. On first run, the kernel configures itself to your repo.
 
 ---
 
@@ -21,21 +21,35 @@ Built for the [Isagawa Kernel](https://github.com/isagawa-co/isagawa-kernel) but
 
 ## Quick Start
 
-### 1. Clone
+### 1. Prerequisites
+
+- [Claude Code](https://claude.ai/claude-code) CLI installed and authenticated
+- Python 3.10+
+- Bash (Git Bash on Windows)
+
+### 2. Clone
 
 ```bash
 git clone https://github.com/isagawa-co/run-task.git
+cd run-task
 ```
 
-### 2. Copy scripts into your kernel-enabled repo
+### 3. First run — kernel self-configures
 
 ```bash
-cp run-task/run-task.sh /path/to/your-repo/
-cp run-task/run-task-batch.sh /path/to/your-repo/
-chmod +x /path/to/your-repo/run-task.sh /path/to/your-repo/run-task-batch.sh
+claude
 ```
 
-### 3. Write task files
+The agent reads `CLAUDE.md`, detects no domain exists, and runs `/kernel/domain-setup` automatically. It discovers the repo structure, builds a protocol, wires hooks, and asks you to restart.
+
+```bash
+claude
+> continue
+```
+
+Now the kernel is active — every action is gated, every 10 actions triggers a protocol re-read, and failures become permanent lessons.
+
+### 4. Write task files
 
 Create `tasks/my-project/000-index.md` and numbered task files:
 
@@ -66,10 +80,10 @@ Spawned agent via run-task.sh
 - [ ] [Mechanical check 2]
 ```
 
-### 4. Run
+### 5. Run
 
 ```bash
-# One-shot: one agent per task
+# One-shot: one agent per task (use task_count + 2 for retry buffer)
 ./run-task.sh . 5 my-project
 
 # Batch: single agent handles all tasks
@@ -95,15 +109,13 @@ One `claude -p` per task. The script controls task-to-task flow. Resume on failu
 ### Flow
 
 ```
-set_one_shot_flag() → pre-init state (session_started + one_shot)
+pre_init_state() → set session_started + one_shot
   │
   ▼
-claude -p (fresh)
+claude -p (fresh, 5 min timeout)
   ├── ONE_SHOT_COMPLETE → next iteration
   ├── ALL_TASKS_COMPLETE → exit 0
-  └── no signal → resume loop
-                    ├── claude -p --resume <session-id>
-                    ├── retry up to 2 times
+  └── no signal → resume loop (up to 2 retries)
                     └── still fails → skip task, continue
 ```
 
@@ -113,10 +125,8 @@ claude -p (fresh)
 |----------|---------|-------------|
 | `MAX_CONSECUTIVE_FAILS` | `2` | Abort after N consecutive failures |
 | `MAX_RESUME_RETRIES` | `2` | Resume attempts per failed iteration |
-
-### Logs
-
-All output saved to `.claude/state/iteration_N.log` (and `iteration_N_resume_M.log` for retries).
+| `TASK_TIMEOUT` | `300` | Seconds per `claude -p` invocation |
+| `SLEEP_BETWEEN` | `2` | Seconds between iterations |
 
 ---
 
@@ -134,69 +144,113 @@ Single `claude -p` session handles ALL tasks via kernel cycling. Agent manages t
 | `task_folder` | none | Subfolder under `tasks/` |
 | `timeout_seconds` | `600` | Max time for the batch run |
 
-### Flow
+---
 
-```
-pre_init_state() → set session_started = true
-  │
-  ▼
-claude -p (single session, all tasks)
-  ├── Agent cycles through tasks (session-start → anchor → work → complete → next)
-  ├── ALL_TASKS_COMPLETE → exit 0
-  ├── Timeout → resume once
-  └── No signal → resume once
-                   ├── ALL_TASKS_COMPLETE → exit 0
-                   └── Still no signal → exit 1
-```
+## What's Included
 
-### Logs
+### Shell Scripts
 
-Output saved to `.claude/state/batch_run.log` (and `batch_run_resume.log` for retry).
+| File | Purpose |
+|------|---------|
+| `run-task.sh` | One-shot task execution (one agent per task) |
+| `run-task-batch.sh` | Batch task execution (single agent, all tasks) |
+| `lib/common.sh` | Shared helpers (state management, signal detection, Python bridge) |
+
+### Isagawa Kernel
+
+The full kernel ships with this repo. On first run, it self-configures via `/kernel/domain-setup`.
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| Bootstrap | `CLAUDE.md` | Kernel loop, first action rule, commands reference |
+| Commands | `.claude/commands/kernel/` | 12 commands (session-start, anchor, complete, learn, fix, etc.) |
+| Hooks | `.claude/hooks/` | 4 hooks (gate enforcer, auto-approve, actions log, test failure) |
+| Skills | `.claude/skills/` | 5 skills (domain-setup, cycling, task-builder, audit, prod-test) |
+| Lessons | `.claude/lessons/` | Accumulated lessons from kernel development |
+
+**The kernel is not pre-configured.** There is no protocol, no `settings.local.json`, no state files. Domain-setup creates all of these on first run by discovering the repo structure and building enforcement specific to what it finds.
 
 ---
 
-## How It Works With the Kernel
-
-The scripts work with the [Isagawa Kernel](https://github.com/isagawa-co/isagawa-kernel) enforcement loop:
+## How the Kernel Works
 
 ```
-run-task.sh sets one_shot + session_started in state
-  │
-  ▼
-claude -p spawns with prompt:
-  "Read CLAUDE.md → session-start → anchor → pick task → implement → complete"
-  │
-  ▼
-Agent inside kernel enforcement:
-  ├── Hooks gate every action (anchor every 10 actions)
-  ├── Protocol read on every anchor
-  ├── Learn after every failure
-  └── Complete gate verifies deliverables
-  │
-  ▼
-Agent outputs ONE_SHOT_COMPLETE or ALL_TASKS_COMPLETE
-  │
-  ▼
-Script detects signal → next iteration or exit
+First run:
+  claude → reads CLAUDE.md → /kernel/session-start → no domain found
+    → /kernel/domain-setup → discovers repo → builds protocol + hooks
+    → restart required (hooks load at startup)
+
+Every subsequent run:
+  session-start → anchor (re-read protocol) → WORK → complete
+                     ↑                              ↓
+                     └── every 10 actions ←─────────┘
+                               ↓
+                     failure? → fix → learn (permanent improvement)
 ```
 
-### State Pre-initialization
+### Key Commands
 
-Both scripts pre-set `session_started: true` in the state file before spawning the agent. This avoids a permission deadlock where Claude Code's sensitive file guard blocks writes to `.claude/state/`, preventing the agent from bootstrapping.
+| Command | What it does |
+|---------|-------------|
+| `/kernel/session-start` | Check state, resume from prior work |
+| `/kernel/anchor` | Re-read protocol, review recent work, reset counter |
+| `/kernel/complete` | Verify deliverables, mark task done |
+| `/kernel/learn` | Record lesson after failure (clears block) |
+| `/kernel/domain-setup` | Discover repo, build protocol + hooks (first run only) |
+| `/kernel/task-builder` | Decompose a goal into atomic tasks |
+| `/kernel/prod-test` | Full L1/L2/L3 production test against a deliverable |
+| `/kernel/audit-workflow` | Scan kernel infrastructure for gaps |
 
-The agent still runs `/kernel/session-start` via the prompt — it just doesn't need to write the initial `true` value.
+### Enforcement
+
+The kernel enforces via hooks (hard gates) and protocol (soft rules):
+
+- **Gate enforcer** blocks all Write/Edit/Bash if session not started, not anchored, or lesson not recorded
+- **Actions counter** auto-increments on every action, blocks at 10 until anchor
+- **Anchor token** prevents quick-anchoring — agent must read the full protocol
+- **Test failure detector** sets `needs_learn` flag when a test fails
+- **Auto-approve** handles Claude Code's sensitive file guard for `.claude/` writes
 
 ---
 
-## Requirements
+## Project Structure
 
-- [Claude Code](https://claude.ai/claude-code) CLI installed and authenticated
-- Python 3 (for JSON state manipulation)
-- Target repo must have:
-  - `CLAUDE.md` — kernel bootstrap instructions
-  - `.claude/commands/kernel/` — kernel commands (session-start, anchor, complete)
-  - `.claude/state/` — state directory (created automatically)
-  - `tasks/[folder]/` — task files to execute
+```
+run-task/
+├── CLAUDE.md                          ← Kernel bootstrap
+├── run-task.sh                        ← One-shot task runner
+├── run-task-batch.sh                  ← Batch task runner
+├── lib/
+│   └── common.sh                      ← Shared helpers
+├── .claude/
+│   ├── commands/kernel/               ← 12 kernel commands
+│   │   ├── session-start.md
+│   │   ├── anchor.md
+│   │   ├── complete.md
+│   │   ├── domain-setup.md
+│   │   ├── learn.md
+│   │   ├── fix.md
+│   │   ├── task-builder.md
+│   │   ├── prod-test.md
+│   │   ├── audit-workflow.md
+│   │   ├── autonomous-cycle.md
+│   │   ├── backlog.md
+│   │   └── reset.md
+│   ├── hooks/                         ← 4 universal hooks
+│   │   ├── universal-gate-enforcer.py
+│   │   ├── auto-approve-claude-writes.py
+│   │   ├── actions-log-appender.py
+│   │   └── test-failure-detector.py
+│   ├── skills/                        ← 5 skills
+│   │   ├── kernel-domain-setup/       ← Self-building setup (11 steps)
+│   │   ├── autonomous-cycling/        ← Task loop behavior
+│   │   ├── task-builder/              ← Goal → tasks → execute
+│   │   ├── audit-workflow/            ← Gap scanner + auto-fix
+│   │   └── prod-test/                 ← L1/L2/L3 production testing
+│   └── lessons/                       ← Accumulated lessons
+├── README.md
+└── TESTING.md
+```
 
 ---
 
@@ -218,9 +272,18 @@ Run-Task is one component of the Isagawa ecosystem:
 | Component | What it does |
 |-----------|-------------|
 | [Isagawa Kernel](https://github.com/isagawa-co/isagawa-kernel) | Self-building, self-improving enforcement for AI agents |
-| **Run-Task** (this repo) | Headless task execution via spawned agents |
-| [QA Platform](https://github.com/isagawa-qa/platform-selenium) | AI-managed Selenium test automation |
+| **Run-Task** (this repo) | Headless task execution + full kernel |
+| [QA Platform (Selenium)](https://github.com/isagawa-qa/platform-selenium) | AI-managed Selenium test automation |
+| [SSH Platform](https://github.com/isagawa-qa/platform-ssh) | AI-managed infrastructure validation via SSH |
 | Domain Specs | Vertical-specific agent configurations |
+
+---
+
+## Services
+
+We build AI execution management systems. The kernel enforces how AI works — not just what it generates.
+
+**[alain@isagawa.co](mailto:alain@isagawa.co)** · **[DM on LinkedIn](https://www.linkedin.com/in/alain-ignacio-54b9823)**
 
 ---
 
