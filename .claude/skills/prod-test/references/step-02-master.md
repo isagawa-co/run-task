@@ -45,7 +45,7 @@ Build the golden copy with deliverable code + kernel + domain spec + scripts.
 |-----------|---------------|----------|
 | Kernel commands | orchestrator repo `.claude/commands/kernel/` | isagawa-kernel repo |
 | Hooks | orchestrator repo `.claude/hooks/` | isagawa-kernel repo |
-| Shell scripts | orchestrator repo root | run-task repo |
+| Shell scripts | `run-task repo/` | orchestrator repo root |
 | Domain spec | source repo `.claude/skills/` | — |
 | Code | source repo | — |
 
