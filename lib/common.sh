@@ -162,6 +162,23 @@ else:
 "
 }
 
+# --- Set needs_learn flag in session state ---
+# Called after a failure+recovery or skip so the next agent must record a lesson
+set_needs_learn() {
+  local reason="${1:-task_failure}"
+  $PYTHON_CMD -c "
+import json, pathlib
+f = pathlib.Path('$STATE_FILE')
+if not f.exists():
+    exit(0)
+s = json.loads(f.read_text())
+s['needs_learn'] = True
+s['needs_learn_reason'] = '$reason'
+f.write_text(json.dumps(s, indent=2))
+print('LEARN REQUIRED: $reason')
+" || echo "  (failed to set needs_learn)"
+}
+
 # --- Write output safely (handles -n, -e in content) ---
 write_log() {
   local content="$1"

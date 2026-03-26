@@ -201,6 +201,8 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
         echo "[STATE after]"
         print_state
         echo "-> Task done after resume. ($COMPLETED completed this run)"
+        # Agent fixed something to complete — next agent must record the lesson
+        set_needs_learn "task_fixed_after_retry"
         break
 
       else
@@ -215,6 +217,8 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
       CONSECUTIVE_FAILS=$((CONSECUTIVE_FAILS + 1))
       echo "-> Task failed after $MAX_RESUME_RETRIES resume attempts. Skipping."
       skip_current_task
+      # Task failed entirely — next agent must record what went wrong
+      set_needs_learn "task_skipped_after_failure"
 
       if [ $CONSECUTIVE_FAILS -ge $MAX_CONSECUTIVE_FAILS ]; then
         echo ""
